@@ -40,6 +40,8 @@ app.use(
 
 app.use(cookieParser());
 
+app.use(express.static('public'));
+
 app.get('/', (_request, response) => {
     return sendSuccess(response, {
         message: 'Welcome to the BAZM Cafe API.',
