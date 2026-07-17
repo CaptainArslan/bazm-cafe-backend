@@ -297,3 +297,8 @@ npx prisma migrate reset
 ```
 
 It deletes and recreates the database.
+
+
+## Notes
+
+This backend is ready for local development and can be extended with additional restaurant workflows as needed.
