@@ -260,6 +260,15 @@ src/modules/
 └── payments/
 ```
 
+## Current backend status
+
+The backend now includes:
+
+- a TypeScript Express entry point
+- shared config, middleware, route, type, and utility helpers
+- Prisma schema and migration setup
+- feature module folders for auth, staff, tables, categories, products, orders, kitchen, and payments
+
 ## Database tables
 
 ```text
