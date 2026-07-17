@@ -3,6 +3,7 @@ import express, {
     type Request,
     type Response,
 } from 'express';
+import { prisma } from './config/database.js';
 
 export const app = express();
 
@@ -57,6 +58,26 @@ app.get('/api/v1/health', (_request: Request, response: Response) => {
         },
     });
 });
+
+app.get(
+    '/api/v1/health/database',
+    async (_request: Request, response: Response, next: NextFunction) => {
+        try {
+            await prisma.$queryRaw`SELECT 1`;
+
+            response.status(200).json({
+                success: true,
+                message: 'MySQL database connection is healthy.',
+                data: {
+                    database: process.env.DB_DATABASE,
+                    timestamp: new Date().toISOString(),
+                },
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
+);
 
 /*
 |--------------------------------------------------------------------------
