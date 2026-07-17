@@ -260,6 +260,37 @@ src/modules/
 └── payments/
 ```
 
+## Socket.IO
+
+Install the real-time server:
+
+```powershell
+npm install socket.io
+```
+
+Socket.IO is attached to the same Node HTTP server used by Express.
+
+Development endpoint:
+
+```text
+http://localhost:3000/socket.io
+```
+
+Handshake test:
+
+```text
+http://localhost:3000/socket.io/?EIO=4&transport=polling
+```
+
+Current test events:
+
+```text
+Server → Client: connection:ready
+Client → Server: connection:ping
+```
+
+Socket.IO TypeScript types are included in the `socket.io` package. Do not install `@types/socket.io`.
+
 ## Current backend status
 
 The backend now includes:
