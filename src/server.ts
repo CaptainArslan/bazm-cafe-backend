@@ -1,13 +1,26 @@
 import { createServer } from 'node:http';
-
 import { app } from './app.js';
 import { prisma } from './config/database.js';
 import { env } from './config/environment.js';
 import { initializeSocketServer } from './realtime/socket.server.js';
 
-const httpServer = createServer(app);
+import listEndpoints from 'express-list-endpoints';
 
+const httpServer = createServer(app);   
+const endpoints = listEndpoints(app);
 const io = initializeSocketServer(httpServer);
+
+if (env.NODE_ENV === 'development') {
+    console.table(
+        listEndpoints(app).flatMap((endpoint) =>
+            endpoint.methods.map((method) => ({
+                method,
+                path: endpoint.path,
+                middleware: endpoint.middlewares.join(', '),
+            })),
+        ),
+    );
+}
 
 httpServer.listen(env.PORT, env.HOST, () => {
     console.log('');
