@@ -13,6 +13,10 @@ export function validate(
 
             if (target === 'body') {
                 request.body = result;
+            } else if (target === 'params') {
+                Object.assign(request.params, result);
+            } else if (target === 'query') {
+                Object.assign(request.query, result);
             }
 
             next();

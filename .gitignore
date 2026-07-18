@@ -7,3 +7,4 @@ coverage/
 logs/
 *.log
 /src/generated/prisma
+/public/uploads/*

@@ -1,6 +1,4 @@
-export * from './product.controller.js';
-export * from './product.repository.js';
-export * from './product.routes.js';
-export * from './product.service.js';
-export * from './product.types.js';
-export * from './product.validation.js';
+export { productsRouter } from "./product.routes.js";
+export * from "./product.types.js";
+export * from "./product.validation.js";
+export { listGuestMenuRecords } from "./product.service.js";

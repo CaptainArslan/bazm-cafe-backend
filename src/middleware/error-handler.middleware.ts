@@ -31,6 +31,7 @@ export const errorHandlerMiddleware: ErrorRequestHandler = (
     if (error instanceof AppError) {
         response.status(error.statusCode).json({
             success: false,
+            code: error.code,
             message: error.message,
             error: {
                 code: error.code,

@@ -1,3 +1,7 @@
+-- Production-ready squashed initial schema for BAZM Café V1.
+-- Fresh environments: apply with `npx prisma migrate deploy`.
+-- Includes auth, customers, guest sessions, tables, catalog, orders, payments, and stock.
+
 -- CreateTable
 CREATE TABLE `users` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -81,14 +85,59 @@ CREATE TABLE `password_reset_tokens` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
+CREATE TABLE `customers` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `uuid` CHAR(36) NOT NULL,
+    `name` VARCHAR(100) NOT NULL,
+    `phone` VARCHAR(30) NULL,
+    `created_by_user_id` BIGINT UNSIGNED NULL,
+    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updated_at` DATETIME(3) NOT NULL,
+    `deleted_at` DATETIME(3) NULL,
+
+    UNIQUE INDEX `customers_uuid_key`(`uuid`),
+    INDEX `customers_phone_idx`(`phone`),
+    INDEX `customers_name_idx`(`name`),
+    INDEX `customers_created_by_user_id_idx`(`created_by_user_id`),
+    INDEX `customers_deleted_at_idx`(`deleted_at`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `guest_sessions` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `uuid` CHAR(36) NOT NULL,
+    `token_hash` CHAR(64) NOT NULL,
+    `order_type` ENUM('DINE_IN', 'TAKEAWAY') NOT NULL,
+    `restaurant_table_id` BIGINT UNSIGNED NULL,
+    `customer_id` BIGINT UNSIGNED NULL,
+    `last_activity_at` DATETIME(3) NOT NULL,
+    `expires_at` DATETIME(3) NOT NULL,
+    `closed_at` DATETIME(3) NULL,
+    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updated_at` DATETIME(3) NOT NULL,
+
+    UNIQUE INDEX `guest_sessions_uuid_key`(`uuid`),
+    UNIQUE INDEX `guest_sessions_token_hash_key`(`token_hash`),
+    INDEX `guest_sessions_restaurant_table_id_closed_at_idx`(`restaurant_table_id`, `closed_at`),
+    INDEX `guest_sessions_customer_id_idx`(`customer_id`),
+    INDEX `guest_sessions_expires_at_closed_at_idx`(`expires_at`, `closed_at`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
 CREATE TABLE `restaurant_tables` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `uuid` CHAR(36) NOT NULL,
     `table_number` VARCHAR(30) NOT NULL,
     `name` VARCHAR(100) NULL,
     `capacity` INTEGER UNSIGNED NOT NULL DEFAULT 1,
+    `operational_status` ENUM('AVAILABLE', 'OUT_OF_SERVICE') NOT NULL DEFAULT 'AVAILABLE',
     `qr_token_hash` CHAR(64) NOT NULL,
     `qr_version` INTEGER UNSIGNED NOT NULL DEFAULT 1,
+    `qr_image_path` VARCHAR(500) NULL,
+    `qr_generated_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `qr_regenerated_at` DATETIME(3) NULL,
     `is_active` BOOLEAN NOT NULL DEFAULT true,
     `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updated_at` DATETIME(3) NOT NULL,
@@ -98,6 +147,7 @@ CREATE TABLE `restaurant_tables` (
     UNIQUE INDEX `restaurant_tables_table_number_key`(`table_number`),
     UNIQUE INDEX `restaurant_tables_qr_token_hash_key`(`qr_token_hash`),
     INDEX `restaurant_tables_is_active_deleted_at_idx`(`is_active`, `deleted_at`),
+    INDEX `restaurant_tables_operational_status_deleted_at_idx`(`operational_status`, `deleted_at`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -157,13 +207,13 @@ CREATE TABLE `orders` (
     `uuid` CHAR(36) NOT NULL,
     `order_number` VARCHAR(30) NOT NULL,
     `bill_number` VARCHAR(30) NOT NULL,
-    `session_number` VARCHAR(30) NOT NULL,
-    `recovery_token_hash` CHAR(64) NOT NULL,
+    `guest_session_id` BIGINT UNSIGNED NOT NULL,
     `restaurant_table_id` BIGINT UNSIGNED NULL,
+    `customer_id` BIGINT UNSIGNED NULL,
     `customer_type` ENUM('DINE_IN', 'TAKEAWAY') NOT NULL,
     `customer_name` VARCHAR(100) NULL,
     `customer_phone` VARCHAR(30) NULL,
-    `status` ENUM('PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'COMPLETED', 'REJECTED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
+    `status` ENUM('PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'SERVED', 'COMPLETED', 'REJECTED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
     `payment_status` ENUM('UNPAID', 'PARTIALLY_PAID', 'PAID', 'REFUNDED') NOT NULL DEFAULT 'UNPAID',
     `subtotal` DECIMAL(12, 2) NOT NULL,
     `tax_amount` DECIMAL(12, 2) NOT NULL DEFAULT 0,
@@ -173,10 +223,12 @@ CREATE TABLE `orders` (
     `customer_notes` TEXT NULL,
     `rejection_reason` TEXT NULL,
     `cancellation_reason` TEXT NULL,
+    `receipt_image_path` VARCHAR(500) NULL,
     `estimated_ready_at` DATETIME(3) NULL,
     `accepted_at` DATETIME(3) NULL,
     `preparing_at` DATETIME(3) NULL,
     `ready_at` DATETIME(3) NULL,
+    `served_at` DATETIME(3) NULL,
     `completed_at` DATETIME(3) NULL,
     `rejected_at` DATETIME(3) NULL,
     `cancelled_at` DATETIME(3) NULL,
@@ -187,8 +239,8 @@ CREATE TABLE `orders` (
     UNIQUE INDEX `orders_uuid_key`(`uuid`),
     UNIQUE INDEX `orders_order_number_key`(`order_number`),
     UNIQUE INDEX `orders_bill_number_key`(`bill_number`),
-    UNIQUE INDEX `orders_recovery_token_hash_key`(`recovery_token_hash`),
-    INDEX `orders_session_number_idx`(`session_number`),
+    INDEX `orders_guest_session_id_idx`(`guest_session_id`),
+    INDEX `orders_customer_id_idx`(`customer_id`),
     INDEX `orders_status_created_at_idx`(`status`, `created_at`),
     INDEX `orders_payment_status_created_at_idx`(`payment_status`, `created_at`),
     INDEX `orders_restaurant_table_id_status_idx`(`restaurant_table_id`, `status`),
@@ -223,7 +275,7 @@ CREATE TABLE `payments` (
     `order_id` BIGINT UNSIGNED NOT NULL,
     `received_by_user_id` BIGINT UNSIGNED NULL,
     `amount` DECIMAL(12, 2) NOT NULL,
-    `method` ENUM('CASH', 'CARD', 'BANK_TRANSFER', 'OTHER') NOT NULL,
+    `method` ENUM('CASH', 'CARD', 'EASYPAISA', 'JAZZCASH', 'BANK_TRANSFER', 'OTHER') NOT NULL,
     `status` ENUM('PENDING', 'COMPLETED', 'FAILED', 'REFUNDED') NOT NULL DEFAULT 'PENDING',
     `reference` VARCHAR(191) NULL,
     `notes` TEXT NULL,
@@ -245,8 +297,8 @@ CREATE TABLE `order_status_histories` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `order_id` BIGINT UNSIGNED NOT NULL,
     `changed_by_user_id` BIGINT UNSIGNED NULL,
-    `from_status` ENUM('PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'COMPLETED', 'REJECTED', 'CANCELLED') NULL,
-    `to_status` ENUM('PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'COMPLETED', 'REJECTED', 'CANCELLED') NOT NULL,
+    `from_status` ENUM('PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'SERVED', 'COMPLETED', 'REJECTED', 'CANCELLED') NULL,
+    `to_status` ENUM('PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'SERVED', 'COMPLETED', 'REJECTED', 'CANCELLED') NOT NULL,
     `reason` TEXT NULL,
     `metadata` JSON NULL,
     `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -294,10 +346,25 @@ ALTER TABLE `auth_sessions` ADD CONSTRAINT `auth_sessions_user_id_fkey` FOREIGN 
 ALTER TABLE `password_reset_tokens` ADD CONSTRAINT `password_reset_tokens_user_id_fkey` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE `customers` ADD CONSTRAINT `customers_created_by_user_id_fkey` FOREIGN KEY (`created_by_user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `guest_sessions` ADD CONSTRAINT `guest_sessions_restaurant_table_id_fkey` FOREIGN KEY (`restaurant_table_id`) REFERENCES `restaurant_tables`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `guest_sessions` ADD CONSTRAINT `guest_sessions_customer_id_fkey` FOREIGN KEY (`customer_id`) REFERENCES `customers`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE `products` ADD CONSTRAINT `products_category_id_fkey` FOREIGN KEY (`category_id`) REFERENCES `categories`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE `orders` ADD CONSTRAINT `orders_guest_session_id_fkey` FOREIGN KEY (`guest_session_id`) REFERENCES `guest_sessions`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE `orders` ADD CONSTRAINT `orders_restaurant_table_id_fkey` FOREIGN KEY (`restaurant_table_id`) REFERENCES `restaurant_tables`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `orders` ADD CONSTRAINT `orders_customer_id_fkey` FOREIGN KEY (`customer_id`) REFERENCES `customers`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `order_items` ADD CONSTRAINT `order_items_order_id_fkey` FOREIGN KEY (`order_id`) REFERENCES `orders`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;

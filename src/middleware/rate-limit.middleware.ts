@@ -29,3 +29,18 @@ export const authenticationRateLimiter = rateLimit({
         },
     },
 });
+
+export const recoveryCodeRateLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 20,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+
+    message: {
+        success: false,
+        message: 'Too many recovery code attempts. Try again later.',
+        error: {
+            code: 'RECOVERY_RATE_LIMIT_EXCEEDED',
+        },
+    },
+});

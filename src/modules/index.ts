@@ -1,8 +1,9 @@
-export * from './auth/index.js';
-export * from './staff/index.js';
-export * from './tables/index.js';
-export * from './categories/index.js';
-export * from './products/index.js';
-export * from './orders/index.js';
-export * from './kitchen/index.js';
-export * from './payments/index.js';
+export * from "./auth/index.js";
+export { staffRouter } from "./staff/index.js";
+export { customersRouter } from "./customers/index.js";
+export { tablesRouter } from "./tables/index.js";
+export { categoriesRouter } from "./categories/index.js";
+export { productsRouter } from "./products/index.js";
+export { guestRouter, guestSessionsStaffRouter } from "./guest-sessions/index.js";
+export { ordersRouter } from "./orders/index.js";
+export { paymentsRouter, orderPaymentsRouter } from "./payments/index.js";

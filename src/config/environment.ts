@@ -38,6 +38,13 @@ const environmentSchema = z.object({
 
     BCRYPT_ROUNDS: z.coerce.number().int().min(10).max(15).default(12),
 
+    GUEST_SESSION_EXPIRES_HOURS: z.coerce
+        .number()
+        .int()
+        .positive()
+        .max(1)
+        .default(1),
+
     FRONTEND_URL: z.string().url().default('http://localhost:5173'),
 });
 

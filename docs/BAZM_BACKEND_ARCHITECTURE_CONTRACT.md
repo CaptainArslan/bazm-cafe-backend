@@ -2,7 +2,7 @@
 
 **Document status:** Architecture contract — implementation must conform  
 **Project phase:** V1 backend APIs  
-**Current implementation target:** Authentication  
+**Current implementation target:** Domain modules after auth (Batch 1 schema approved)  
 **Primary audience:** Developers and Cursor AI  
 
 ---
@@ -61,20 +61,24 @@ BAZM Café is a mobile-first restaurant ordering platform designed to operate on
 
 ### Actors
 
-- **Customer:** scans a table QR code, browses products, submits an order without an account, and tracks the order.
-- **Staff:** authenticates, reviews orders, accepts or rejects them, and advances kitchen statuses.
-- **Administrator:** manages staff, tables, QR codes, categories, products, stock, orders, and manual payment confirmation.
+- **Customer:** uses a secure guest ordering session (dine-in via table QR, or takeaway without a table). Customers do not create user accounts in V1.
+- **Staff:** authenticates as `STAFF`, reviews orders, accepts or rejects pending orders, advances preparation statuses through `SERVED`, searches/creates customers, and attaches customers to orders. Staff do not record payments or manage catalog/tables.
+- **Administrator:** authenticates as `ADMIN`, manages staff, customers, tables, QR codes, categories, products, stock, cafe settings (tax / service charge), orders, cancellations, and manual payment recording.
 
 ### V1 modules
 
 - auth
 - staff
+- customers
 - tables
 - categories
 - products
+- settings (cafe tax rate / service charge)
+- guest-sessions
 - orders
-- kitchen
 - payments
+
+There is **no kitchen module** in V1. Kitchen/operational staff work through the orders APIs. An empty `src/modules/kitchen/` placeholder may remain unused until explicitly removed.
 
 ### Explicitly excluded from V1
 
@@ -85,8 +89,22 @@ BAZM Café is a mobile-first restaurant ordering platform designed to operate on
 - advanced reporting
 - dependency on Firebase Cloud Messaging
 - online payment processing
+- kitchen CRUD / multi-kitchen routing
+- refunds / payment voiding (enum values may exist; APIs are not authorized)
+- reservations
 
 No excluded feature may be introduced indirectly through schema fields, routes, abstractions, or dependencies.
+
+### Approved image packages (installed)
+
+- `qrcode` — printable table QR PNG generation
+- `sharp` — receipt-image composition
+
+Upload directories:
+- `public/uploads/qr`
+- `public/uploads/receipts`
+
+Kitchen placeholder remains unused.
 
 ## 4. Technology contract
 
@@ -271,10 +289,14 @@ Known application tables:
 
 - `users`
 - `refresh_tokens`
+- `auth_sessions`
 - `password_reset_tokens`
+- `customers`
+- `guest_sessions`
 - `restaurant_tables`
 - `categories`
 - `products`
+- `cafe_settings`
 - `orders`
 - `order_items`
 - `payments`
@@ -283,15 +305,29 @@ Known application tables:
 
 Known enums:
 
-- `UserRole`
-- `CustomerType`
-- `OrderStatus`
-- `OrderPaymentStatus`
-- `PaymentMethod`
-- `PaymentStatus`
-- `StockMovementType`
+- `UserRole` — `ADMIN`, `STAFF`
+- `CustomerType` — `DINE_IN`, `TAKEAWAY` (API and DB use `TAKEAWAY`; product language “parcel” maps to `TAKEAWAY`)
+- `OrderStatus` — `PENDING`, `ACCEPTED`, `PREPARING`, `READY`, `SERVED`, `COMPLETED`, `REJECTED`, `CANCELLED`
+- `OrderPaymentStatus` — `UNPAID`, `PARTIALLY_PAID`, `PAID`, `REFUNDED`
+- `PaymentMethod` — `CASH`, `CARD`, `EASYPAISA`, `JAZZCASH`, `BANK_TRANSFER`, `OTHER`
+- `PaymentStatus` — `PENDING`, `COMPLETED`, `FAILED`, `REFUNDED`
+- `StockMovementType` — `STOCK_ADDED`, `STOCK_REMOVED`, `RESERVED`, `RESERVATION_RELEASED`, `CONSUMED`, `MANUAL_ADJUSTMENT`
+- `TableOperationalStatus` — `AVAILABLE`, `OUT_OF_SERVICE` (`OCCUPIED` is derived in API responses, never stored)
 
 An AI agent must inspect the actual schema for exact model names, fields, relation names, nullability, mappings, indexes, defaults, and enum members. This document does not authorize guessing them.
+
+### Guest sessions
+
+- Opaque raw token in HttpOnly cookie `bazm_guest_session` (path `/api/v1`); only SHA-256 hash stored.
+- Public `uuid` for Socket.IO rooms and safe API identity.
+- Lifetime from `GUEST_SESSION_EXPIRES_HOURS` (approved default: **1** hour).
+- Dine-in sessions require an active table QR; takeaway sessions have no table.
+- Closing rules: explicit close endpoint; automatic close when order becomes `COMPLETED` after full payment; rejection does not close the session.
+- Table `OCCUPIED` is derived while an active (non-closed, non-expired) guest session is bound to that table. After payment completes and the session closes, the table is no longer occupied.
+
+### Order money fields
+
+`tax_amount`, `service_charge_amount`, and `discount_amount` remain on `orders`. Tax and service charge are computed at order create from the singleton `cafe_settings` rates (`tax_rate_percent`, `service_charge_percent`, both default `0`). Discount stays `0` in V1. Totals are computed only on the backend.
 
 ### Migration rules
 
@@ -580,7 +616,7 @@ Do not hold a database transaction open during slow external network operations.
 
 ## 17. Order and inventory invariants
 
-There is one `orders` table. The kitchen operates on the same order; it does not create a separate kitchen-order record.
+There is one `orders` table. Staff advance the same order; there is no separate kitchen-order record or kitchen module.
 
 Order statuses are fixed for V1:
 
@@ -588,27 +624,37 @@ Order statuses are fixed for V1:
 - `ACCEPTED`
 - `PREPARING`
 - `READY`
+- `SERVED`
 - `COMPLETED`
 - `REJECTED`
 - `CANCELLED`
+
+Normal transition:
+
+`PENDING` → `ACCEPTED` → `PREPARING` → `READY` → `SERVED` → `COMPLETED`
+
+Rules:
+
+- `COMPLETED` is never set manually by admin/staff. It is set only when successful payments cover the order total while the order is `SERVED`.
+- `SERVED` requires a customer attached for dine-in (name required; phone optional). Takeaway already requires name and phone at order creation.
+- Payment may be recorded only while the order is `SERVED`.
 
 Payment status is separate from order status:
 
 - `UNPAID`
 - `PARTIALLY_PAID`
 - `PAID`
-- `REFUNDED`
+- `REFUNDED` (preserved; no refund APIs in V1)
 
 Inventory behavior:
 
-- Submission reserves inventory.
-- Completion converts reservation into consumption.
-- Rejection or cancellation releases reservation.
-- Available quantity is `stock_quantity - reserved_quantity`.
+- Submission reserves inventory (`RESERVED`).
+- Acceptance converts reservation into consumption (`CONSUMED`): stock and reserved both decrease.
+- Rejection of `PENDING` releases reservation (`RESERVATION_RELEASED`); stock unchanged.
+- Admin cancellation of `ACCEPTED` / `PREPARING` / `READY` does **not** automatically restore consumed stock.
+- Available quantity is `stock_quantity - reserved_quantity` (never stored as an editable field).
 - `stock_movements` is the audit trail.
 - Order items preserve product-name and price snapshots so historical receipts do not change when products change.
-
-These invariants apply to later modules and must not be redefined during auth implementation.
 
 ## 18. Socket.IO contract
 
@@ -621,7 +667,11 @@ These invariants apply to later modules and must not be redefined during auth im
 - Connecting requires a Socket.IO client; opening `/socket.io` in a browser is not a valid connection test.
 - The polling handshake test is `/socket.io/?EIO=4&transport=polling`.
 
-Authentication of sockets and room membership are unresolved and must be specified before protected real-time events are implemented.
+### Socket authentication and rooms (approved)
+
+- ADMIN/STAFF sockets: access JWT via Socket.IO auth handshake → join `operations` only.
+- Guest sockets: validate guest-session token (hash) → join only `guest-session:{uuid}` assigned by the server.
+- Domain events (emit only after DB commit): `order:created`, `order:accepted`, `order:rejected`, `order:status-updated`, `order:cancelled`, `order:payment-updated`, `order:completed`.
 
 ## 19. Environment contract
 
@@ -645,8 +695,10 @@ JWT_ACCESS_EXPIRES_IN
 JWT_REFRESH_EXPIRES_DAYS
 PASSWORD_RESET_EXPIRES_MINUTES
 BCRYPT_ROUNDS
+GUEST_SESSION_EXPIRES_HOURS
 ```
 
+- `GUEST_SESSION_EXPIRES_HOURS` approved default: `1` (maximum intended café session length for V1).
 - Environment values must be parsed and validated in `src/config/environment.ts`.
 - Feature code imports validated environment configuration, not `process.env` directly.
 - Secrets are never hardcoded, committed, logged, or returned.
@@ -709,43 +761,30 @@ Compilation alone does not mean an API is complete.
 
 ## 23. Known facts and unresolved decisions ledger
 
-### Confirmed
+### Confirmed (Batch 1 decisions)
 
 - Technology and repository structure described above.
-- V1 module list and implementation order.
-- Admin and staff authenticate; customers do not require accounts in V1.
+- V1 modules: auth, staff, customers, tables, categories, products, settings, guest-sessions, orders, payments (no kitchen module).
+- Order type enum remains `TAKEAWAY` (not renamed to `PARCEL`).
+- `OrderStatus` includes `SERVED`; orders include `served_at`.
+- `PaymentMethod` includes `EASYPAISA` and `JAZZCASH`.
+- `GUEST_SESSION_EXPIRES_HOURS` default `1`.
+- Receipt/QR image stack: `qrcode` + `sharp` (install in later batches).
+- Kitchen placeholder folder left empty for now.
+- Cafe settings singleton stores tax and service charge percentages (default `0`); applied when creating orders. Discount remains `0` in V1.
+- Table `OCCUPIED` is derived from an active guest session; session closes when the order is fully paid and becomes `COMPLETED`.
+- Admin and staff authenticate; customers use guest sessions only.
 - JWT access tokens and opaque refresh tokens.
-- Refresh-token hashing, rotation, HttpOnly cookie, and session revocation requirements.
-- Existing database tables and enum type names listed above.
+- Socket.IO attached to the Node HTTP server; auth/rooms/events specified above.
 - Shared backend foundation files already exist.
-- Socket.IO is attached to the Node HTTP server.
 
-### Must be verified from repository before implementation
-
-- Exact Prisma model and field names.
-- Exact `UserRole` enum members.
-- Whether soft deletion exists on `User` and its exact field name.
-- Refresh-token fields and whether token-family/reuse detection is supported.
-- Password-reset-token fields.
-- Existing API response and error shapes.
-- Existing validation middleware interface.
-- Existing rate limiter exports and configuration.
-- Exact environment parser output.
-- Installed test tooling.
-- Existing `package.json` scripts.
-
-### Requires explicit decision
+### Requires explicit decision (deferred)
 
 - Password-reset delivery mechanism for the offline-first V1 environment.
-- Exact password policy.
-- Exact access-token claim names.
-- Exact refresh-cookie name, path, and `sameSite` policy.
-- Whether refresh-token reuse revokes one family or every user session.
-- Whether login failure for inactive accounts remains fully generic.
-- Socket authentication and room authorization.
-- Audit logging requirements for authentication events.
+- Exact local upload directory layout for QR and receipt images (before tables/receipts batches).
+- Audit logging requirements beyond stock movements and order status history.
 
-Cursor must not resolve these decisions by assumption.
+Cursor must not resolve deferred decisions by assumption.
 
 ## 24. Architecture governance
 

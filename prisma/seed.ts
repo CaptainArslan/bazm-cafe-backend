@@ -59,8 +59,33 @@ async function seedAdmin(): Promise<void> {
     console.table(admin);
 }
 
+async function seedCafeSettings(): Promise<void> {
+    const settings = await prisma.cafeSettings.upsert({
+        where: { id: 1 },
+        create: {
+            id: 1,
+            taxRatePercent: 0,
+            serviceChargePercent: 0,
+        },
+        update: {},
+        select: {
+            id: true,
+            taxRatePercent: true,
+            serviceChargePercent: true,
+        },
+    });
+
+    console.log('Cafe settings seeded (defaults 0% unless already set):');
+    console.table({
+        id: settings.id,
+        taxRatePercent: settings.taxRatePercent.toString(),
+        serviceChargePercent: settings.serviceChargePercent.toString(),
+    });
+}
+
 async function main(): Promise<void> {
     await seedAdmin();
+    await seedCafeSettings();
 }
 
 main()
