@@ -75,11 +75,11 @@ model User {
   updatedAt           DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
   deletedAt           DateTime? @map("deleted_at") @db.DateTime(3)
 
-  refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
   receivedPayments    Payment[]
   statusChanges       OrderStatusHistory[]
   stockMovements      StockMovement[]
+  authSessions        AuthSession[]
 
   @@index([role, isActive])
   @@index([deletedAt])
@@ -87,26 +87,47 @@ model User {
 }
 
 model RefreshToken {
-  id           BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  userId       BigInt    @map("user_id") @db.UnsignedBigInt
-  tokenHash    String    @unique @map("token_hash") @db.Char(64)
-  deviceName   String?   @map("device_name") @db.VarChar(150)
-  ipAddress    String?   @map("ip_address") @db.VarChar(45)
-  userAgent    String?   @map("user_agent") @db.Text
-  expiresAt    DateTime  @map("expires_at") @db.DateTime(3)
-  lastUsedAt   DateTime? @map("last_used_at") @db.DateTime(3)
-  revokedAt    DateTime? @map("revoked_at") @db.DateTime(3)
-  replacedById BigInt?   @map("replaced_by_id") @db.UnsignedBigInt
-  createdAt    DateTime  @default(now()) @map("created_at") @db.DateTime(3)
-  updatedAt    DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+  id            BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  authSessionId BigInt    @map("auth_session_id") @db.UnsignedBigInt
+  tokenHash     String    @unique @map("token_hash") @db.Char(64)
+  expiresAt     DateTime  @map("expires_at") @db.DateTime(3)
+  lastUsedAt    DateTime? @map("last_used_at") @db.DateTime(3)
+  revokedAt     DateTime? @map("revoked_at") @db.DateTime(3)
+  replacedById  BigInt?   @map("replaced_by_id") @db.UnsignedBigInt
+  createdAt     DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
-  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  authSession AuthSession @relation(fields: [authSessionId], references: [id], onDelete: Cascade)
+
   replacedBy RefreshToken?  @relation("RefreshTokenRotation", fields: [replacedById], references: [id], onDelete: SetNull)
   replaces   RefreshToken[] @relation("RefreshTokenRotation")
 
-  @@index([userId, revokedAt, expiresAt])
+  @@index([authSessionId, revokedAt, expiresAt])
   @@index([replacedById])
   @@map("refresh_tokens")
+}
+
+model AuthSession {
+  id           BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  uuid         String    @unique @default(uuid()) @db.Char(36)
+  userId       BigInt    @map("user_id") @db.UnsignedBigInt
+  deviceIdHash String    @map("device_id_hash") @db.Char(64)
+  deviceName   String?   @map("device_name") @db.VarChar(150)
+  ipAddress    String?   @map("ip_address") @db.VarChar(45)
+  userAgent    String?   @map("user_agent") @db.Text
+  lastUsedAt   DateTime? @map("last_used_at") @db.DateTime(3)
+  expiresAt    DateTime  @map("expires_at") @db.DateTime(3)
+  revokedAt    DateTime? @map("revoked_at") @db.DateTime(3)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+
+  @@unique([userId, deviceIdHash])
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("auth_sessions")
 }
 
 model PasswordResetToken {
